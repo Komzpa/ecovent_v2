@@ -90,6 +90,7 @@ class EcoVentCoordinator(DataUpdateCoordinator):
                 )
             self.fan_initialized = True
             await self._async_post_init_setup()
+            self._defer_startup_clock_sync()
 
         self.updateCounter += 1
         if (self.updateCounter % 2 == 0) or (self.updateCounter < 4):
@@ -110,6 +111,18 @@ class EcoVentCoordinator(DataUpdateCoordinator):
         """Load slow one-off state after device discovery."""
         if self._should_refresh_schedule_week():
             await self.hass.async_add_executor_job(self._load_schedule_week)
+
+    def _defer_startup_clock_sync(self) -> None:
+        """Avoid clock-only writes during Home Assistant startup discovery."""
+        if not self._auto_clock_sync or not self._supports_device_clock_sync():
+            return
+
+        now = self._device_clock_now()
+        self._last_clock_sync_check = now
+        _LOGGER.debug(
+            "EcoVentCoordinator: deferring startup clock sync check for %s",
+            self._fan.name,
+        )
 
     def _should_refresh_schedule_week(self) -> bool:
         """Return whether full weekly schedule reads are useful right now."""
@@ -145,11 +158,37 @@ class EcoVentCoordinator(DataUpdateCoordinator):
         if self._recently_synced_clock(now):
             return
 
+        clock_read = await self.hass.async_add_executor_job(
+            self._refresh_device_clock_state
+        )
+        if not clock_read:
+            _LOGGER.debug(
+                "EcoVentCoordinator: skipping standalone clock sync because "
+                "fresh RTC read failed for %s",
+                self._fan.name,
+            )
+            return
+
+        now = self._device_clock_now()
+        if self._device_clock_datetime() is None:
+            _LOGGER.debug(
+                "EcoVentCoordinator: skipping standalone clock sync because "
+                "fresh RTC state is unavailable for %s",
+                self._fan.name,
+            )
+            return
+
         if not self._clock_sync_needed(now):
             return
 
         await self.hass.async_add_executor_job(self._fan.set_rtc_datetime, now)
         self._record_clock_sync(now)
+
+    def _refresh_device_clock_state(self) -> bool:
+        """Read RTC rows before a standalone clock correction write."""
+        time_read = self._fan.get_param("rtc_time")
+        date_read = self._fan.get_param("rtc_date")
+        return time_read and date_read
 
     def _clock_sync_params_if_needed(self) -> dict[str, str]:
         """Return RTC rows to batch into an already noisy device write."""
