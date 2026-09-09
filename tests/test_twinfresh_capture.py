@@ -13,6 +13,29 @@ from ecovent_test_helpers import Fan, packet_with_payload
 
 
 class TwinFreshCaptureTest(unittest.TestCase):
+    def test_reported_firmware_05_accepts_the_captured_filter_frame(self):
+        """Apply the #101 identity to the physical 0.3 frame format replay."""
+        capture = json.loads(
+            (Path(__file__).parent / "fixtures/twinfresh_style_wifi_poll_capture.json").read_text()
+        )
+        filter_transaction = next(
+            transaction
+            for transaction in capture["polls"][0]["transactions"]
+            if transaction["request"] == "0064"
+        )
+        frame = filter_transaction["frames"][0]
+
+        fan = Fan("192.0.2.1")
+        fan.unit_type = "0e00"
+        fan.firmware = "00050a07e807"
+        fan.send = lambda _data: True
+        fan.receive = lambda: packet_with_payload(bytes.fromhex(frame["payload"]))
+
+        self.assertTrue(fan._read_params("0064", required_params=frozenset()))
+        self.assertEqual(fan.filter_timer_countdown, "151d 11h 36m ")
+        self.assertFalse(fan.last_missing_optional_params)
+        self.assertNotIn(0x0064, fan._optional_param_backoff())
+
     def test_full_and_quick_polls_match_recorded_hardware(self):
         capture = json.loads(
             (Path(__file__).parent / "fixtures/twinfresh_style_wifi_poll_capture.json").read_text()

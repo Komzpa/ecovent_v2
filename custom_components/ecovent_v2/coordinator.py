@@ -249,9 +249,11 @@ class EcoVentCoordinator(DataUpdateCoordinator):
         if not self._fan.supports_parameter("weekly_schedule_setup"):
             return self.updateCounter % 10 == 0
 
-        return not self._weekly_schedule or (
-            state == "on" and self.updateCounter % 10 == 0
+        complete_week = all(
+            set(self._weekly_schedule.get(day, ())) == {1, 2, 3, 4}
+            for day in range(1, 8)
         )
+        return self.updateCounter % 10 == 0 and (not complete_week or state == "on")
 
     def _load_schedule_week(self) -> None:
         """Read and cache the full weekly schedule from the device."""
@@ -264,8 +266,8 @@ class EcoVentCoordinator(DataUpdateCoordinator):
             try:
                 records = self._fan.read_weekly_schedule_day(day)
             except OSError as err:
-                _LOGGER.warning(
-                    "EcoVentCoordinator: preserving cached schedule for %s day %s "
+                _LOGGER.debug(
+                    "EcoVentCoordinator: schedule read failed for %s day %s "
                     "after a read error: %s",
                     self._fan.name,
                     day,
@@ -273,19 +275,28 @@ class EcoVentCoordinator(DataUpdateCoordinator):
                 )
                 continue
             if not records or set(records) != {1, 2, 3, 4}:
-                _LOGGER.warning(
-                    "EcoVentCoordinator: preserving cached schedule for %s day %s "
-                    "after an incomplete read (%s/4 periods)",
+                received_periods = sorted(records or {})
+                missing_periods = sorted(set(range(1, 5)) - set(received_periods))
+                cache_action = (
+                    "preserving cached schedule"
+                    if day in self._weekly_schedule
+                    else "leaving schedule unavailable"
+                )
+                _LOGGER.debug(
+                    "EcoVentCoordinator: %s for %s day %s after an incomplete "
+                    "read; received periods %s, missing periods %s",
+                    cache_action,
                     self._fan.name,
                     day,
-                    len(records or {}),
+                    received_periods or "none",
+                    missing_periods,
                 )
                 continue
             try:
                 validate_schedule_day([records[period] for period in range(1, 5)])
             except ValueError as err:
-                _LOGGER.warning(
-                    "EcoVentCoordinator: preserving cached schedule for %s day %s "
+                _LOGGER.debug(
+                    "EcoVentCoordinator: invalid schedule readback for %s day %s "
                     "after invalid readback: %s",
                     self._fan.name,
                     day,
