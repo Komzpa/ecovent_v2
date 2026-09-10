@@ -6,7 +6,12 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorStateClass,
 )
-from homeassistant.const import PERCENTAGE, REVOLUTIONS_PER_MINUTE, EntityCategory
+from homeassistant.const import (
+    LIGHT_LUX,
+    PERCENTAGE,
+    REVOLUTIONS_PER_MINUTE,
+    EntityCategory,
+)
 from homeassistant.const import UnitOfTemperature
 
 
@@ -127,6 +132,16 @@ SENSOR_SPECS = (
         state_class=SensorStateClass.MEASUREMENT,
         icon="mdi:air-filter",
         required_params=("air_quality",),
+    ),
+    SensorSpec(
+        "_light_level",
+        "Light level",
+        "light_level",
+        LIGHT_LUX,
+        SensorDeviceClass.ILLUMINANCE,
+        SensorStateClass.MEASUREMENT,
+        icon="mdi:brightness-6",
+        required_params=("light_level",),
     ),
     SensorSpec(
         "_speed",

@@ -291,6 +291,10 @@ class VentoSensor(StableObjectIdMixin, CoordinatorEntity, SensorEntity):
         """Get heater status."""
         return self._fan.heater_status
 
+    def light_level(self):
+        """Get the raw light-sensor reading."""
+        return self._fan.light_level
+
     def air_quality_status(self):
         """Get compound air quality status."""
         return self._fan.air_quality_status

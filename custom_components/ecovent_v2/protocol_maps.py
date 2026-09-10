@@ -358,6 +358,7 @@ arc_params = {
     0x031E: ["all_day_airflow", arc_airflows_low],
     0x031F: ["air_quality_treshold", None],
     0x0320: ["air_quality", None],
+    0x0321: ["light_level", None],
     0x0323: ["temperature_status", statuses],
     0x0324: ["temperature_sensor_state", states],
     0x0325: ["temperature_treshold", None],
