@@ -315,6 +315,7 @@ class Fan(
         self._bulk_read_reprobe_countdown = 0
         self._last_response_param_ids = None
         self._last_raw_response_param_ids = None
+        self._last_invalid_response_param_ids = None
         self._last_response_device_id = None
         self._unsupported_optional_poll_params = set()
         self.audible_write_command_count = 0

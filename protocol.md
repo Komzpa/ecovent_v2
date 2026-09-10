@@ -336,21 +336,40 @@ accounting and transport commands share the lock so concurrent writes cannot
 replace a poll response before its parameter IDs are consumed.
 
 A captured TwinFresh Style Wi-Fi (`0x0E00`, firmware `0.3 2021-10-04`) returns
-a four-byte `0x0064`: minute, hour, then little-endian 16-bit days. This exact
-variant uses the existing four-byte decoder with minute/hour bounds and a
-365-day limit; other Vento variants retain their three-byte requirement.
+a four-byte `0x0064`: minute, hour, then little-endian 16-bit days. Issue #101
+reports the same model's firmware `0.5 2024-07-10` responding with that row;
+until its raw capture arrives, accepting it is an evidence-backed format
+inference rather than a second physical capture. This model variant uses the
+four-byte decoder with minute/hour bounds and a 365-day limit; other Vento
+variants retain their three-byte requirement. A soft omission preserves a
+previously decoded filter countdown, but an explicit unsupported or malformed
+row clears it.
 Initialization reads firmware before the first full poll. The captured full/quick
 cycle is replayed by `tests/test_twinfresh_capture.py`; identity/IP values are
 redacted, and operational payload bytes are preserved.
-For the HA-visible regression, run `python tests/ha_issue100_smoke.py` in an
-environment with Home Assistant installed (validated with `2026.6.0.dev0`).
-The harness uses real coordinator updates, entity listeners, and the HA state
-machine with captured values and controlled omissions. Each of the three control
-rows is checked across 26 accelerated cycles with bulk and individual recovery.
-It also checks failed command confirmation, offline recovery, empty/unrelated
-replies, wrong device IDs, invalid checksums, malformed controls, and explicit
-rejections. No network traffic is sent. Schedule and Repairs side effects are
-excluded from this focused test.
+
+Schedule cache reads use the documented day/period selector for all four slots.
+Only a complete, validated day replaces its cache entry. An incomplete day keeps
+the prior complete entry (or remains unavailable when none exists) and retries on
+the normal ten-update cadence, including when the weekly schedule is off.
+For HA-visible regressions, run `python tests/ha_issue100_smoke.py` and
+`python tests/ha_issues101_102_smoke.py` in an environment with Home Assistant
+installed (validated with `2026.6.0.dev0`). The latter replays the captured
+four-byte countdown under the reported 0.5 identity through production polling
+and HA entities. It checks cold-start recovery, twelve consecutive soft-missing
+full polls, bounded individual retries, and malformed/unsupported invalidation.
+Each schedule slot is omitted in turn: an empty cache retries only at updates
+10 and 20, recovers all seven days, and retains complete days through later
+partial reads. Neither harness sends network traffic. The latter accepts
+`--source-root /path/to/checkout --case firmware|filter|schedule` for full-source
+baseline comparisons; all three cases fail against unmodified `495ccd0`.
+The issue #100 harness uses real coordinator updates, entity listeners, and the
+HA state machine with captured values and controlled omissions. Each of the three
+control rows is checked across 26 accelerated cycles with bulk and individual
+recovery. It also checks failed command confirmation, offline recovery,
+empty/unrelated replies, wrong device IDs, invalid checksums, malformed controls,
+and explicit rejections. Schedule and Repairs side effects are excluded from this
+focused test.
 
 `python tests/ha_issue100_smoke.py --baseline b72970a` substitutes the old polling
 handlers for comparison. With state/speed absent from bulk replies, the old

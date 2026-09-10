@@ -29,21 +29,68 @@ def _class_method(tree, class_name, method_name):
 
 
 class Issue16RegressionTest(unittest.TestCase):
-    def test_weekly_schedule_polling_keeps_editor_cache_warm_when_disabled(self):
+    def test_schedule_refresh_is_bounded_for_empty_or_partial_off_cache(self):
         source = COORDINATOR_PATH.read_text()
         tree = ast.parse(source)
         should_refresh = _class_method(
             tree, "EcoVentCoordinator", "_should_refresh_schedule_week"
         )
         post_init = _class_method(tree, "EcoVentCoordinator", "_async_post_init_setup")
-        should_refresh_source = ast.get_source_segment(source, should_refresh)
+        namespace = {
+            "_LOGGER": logging.getLogger(__name__),
+            "SCHEDULE_DAY_LABELS": {day: str(day) for day in range(1, 8)},
+        }
+        exec(
+            compile(
+                ast.fix_missing_locations(
+                    ast.Module(body=[should_refresh], type_ignores=[])
+                ),
+                str(COORDINATOR_PATH),
+                "exec",
+            ),
+            namespace,
+        )
 
-        self.assertIn("not self._weekly_schedule", should_refresh_source)
-        self.assertIn("state = self._fan.weekly_schedule_state", should_refresh_source)
-        self.assertIn('state not in ("on", "off")', should_refresh_source)
-        self.assertIn('state == "on"', should_refresh_source)
-        self.assertIn("self.updateCounter % 10 == 0", should_refresh_source)
-        self.assertIn("profile_supports_parameter", should_refresh_source)
+        class Fan:
+            weekly_schedule_state = "off"
+
+            def profile_supports_parameter(self, _name):
+                return True
+
+            supports_parameter = profile_supports_parameter
+
+        coordinator = types.SimpleNamespace(
+            _fan=Fan(), _weekly_schedule={}, updateCounter=0
+        )
+        should_refresh_week = namespace["_should_refresh_schedule_week"]
+
+        self.assertTrue(should_refresh_week(coordinator))
+        coordinator.updateCounter = 1
+        self.assertFalse(should_refresh_week(coordinator))
+        coordinator.updateCounter = 10
+        self.assertTrue(should_refresh_week(coordinator))
+
+        coordinator._weekly_schedule = {
+            1: {period: object() for period in range(1, 5)}
+        }
+        coordinator.updateCounter = 1
+        self.assertFalse(should_refresh_week(coordinator))
+        coordinator.updateCounter = 10
+        self.assertTrue(should_refresh_week(coordinator))
+
+        coordinator._weekly_schedule = {
+            day: {period: object() for period in range(1, 5)}
+            for day in range(1, 8)
+        }
+        coordinator._weekly_schedule[1].pop(4)
+        coordinator.updateCounter = 10
+        self.assertTrue(should_refresh_week(coordinator))
+
+        coordinator._weekly_schedule[1][4] = object()
+        self.assertFalse(should_refresh_week(coordinator))
+        coordinator._fan.weekly_schedule_state = "on"
+        self.assertTrue(should_refresh_week(coordinator))
+
         self.assertTrue(
             any(
                 isinstance(node, ast.Attribute)
@@ -139,7 +186,7 @@ class Issue16RegressionTest(unittest.TestCase):
             "_load_schedule_days",
         )
         namespace = {
-            "_LOGGER": types.SimpleNamespace(warning=lambda *_args: None),
+            "_LOGGER": types.SimpleNamespace(debug=lambda *_args: None),
             "validate_schedule_day": lambda _records: None,
         }
         exec(

@@ -318,10 +318,10 @@ class ParseRobustnessTest(unittest.TestCase):
         )
         self.assertEqual(fan.filter_timer_countdown, "72d 8h 17m ")
 
-    def test_twinfresh_style_captured_filter_timer_variant(self):
+    def test_twinfresh_style_filter_timer_variant_is_firmware_independent(self):
         for unit, firmware, valid in (
             ("0e00", "0003040ae507", True),
-            ("0e00", "0004040ae507", False),
+            ("0e00", "0005040ae507", True),
             ("0500", "0003040ae507", False),
         ):
             with self.subTest(unit=unit, firmware=firmware):

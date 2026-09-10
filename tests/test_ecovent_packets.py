@@ -76,7 +76,6 @@ class PacketBuilderTest(unittest.TestCase):
     def test_soft_miss_preservation_is_limited_to_vento_controls(self):
         for unit_type, param_id, attr in (
             ("0e00", 0x0025, "humidity"),
-            ("0e00", 0x0064, "filter_timer_countdown"),
             ("0200", 0x0001, "state"),
         ):
             with self.subTest(unit_type=unit_type, param=param_id):
@@ -100,6 +99,101 @@ class PacketBuilderTest(unittest.TestCase):
                 calls.clear()
                 self.assertTrue(fan._read_params(request, required_params=frozenset()))
                 self.assertEqual(calls, [request])
+
+    def test_filter_countdown_soft_miss_retains_only_a_known_valid_value(self):
+        recovered = False
+
+        def configure_soft_omission(fan, calls):
+            def send_command(func, param, value="", retries=10):
+                calls.append(param)
+                if len(param) > 4:
+                    if recovered:
+                        fan._filter_timer_countdown = "9d 0h 0m "
+                        fan._last_response_param_ids = {0x0002, 0x0064}
+                        return True
+                    fan._last_response_param_ids = {0x0002}
+                    return True
+                return False
+
+            fan.send_command = send_command
+
+        fan = Fan("192.0.2.1")
+        fan.unit_type = "0e00"
+        fan.filter_timer_countdown = "00000a00"
+        calls = []
+        configure_soft_omission(fan, calls)
+        self.assertTrue(fan._read_params("00640002", required_params=frozenset()))
+        self.assertEqual(fan.filter_timer_countdown, "10d 0h 0m ")
+        self.assertEqual(fan.last_missing_optional_params, {0x0064})
+
+        recovered = True
+        self.assertTrue(fan._read_params("00640002", required_params=frozenset()))
+        self.assertEqual(fan.filter_timer_countdown, "9d 0h 0m ")
+        self.assertFalse(fan.last_missing_optional_params)
+
+        recovered = False
+        absent = Fan("192.0.2.1")
+        absent.unit_type = "0e00"
+        configure_soft_omission(absent, [])
+        self.assertTrue(absent._read_params("00640002", required_params=frozenset()))
+        self.assertIsNone(absent.filter_timer_countdown)
+
+    def test_filter_countdown_explicit_invalid_or_unsupported_rows_clear_stale_value(self):
+        for payload in (
+            [0xFE, 0x04, 0x64, 0x00, 0x00, 0x6E, 0x01],
+            [0xFD, 0x64],
+        ):
+            with self.subTest(payload=payload):
+                fan = Fan("192.0.2.1")
+                fan.unit_type = "0e00"
+                fan.filter_timer_countdown = "00000a00"
+                fan.send = lambda _data: True
+                fan.receive = lambda payload=payload: packet_with_payload(payload)
+
+                self.assertFalse(fan._read_params("0064", required_params=frozenset()))
+                self.assertIsNone(fan.filter_timer_countdown)
+
+    def test_filter_countdown_cold_start_stays_unknown_and_recovers_after_backoff(self):
+        missing = packet_with_payload([0x02, 1])
+        recovered = packet_with_payload([0xFE, 4, 0x64, 0, 0, 9, 0])
+
+        cold = Fan("192.0.2.1")
+        cold.unit_type = "0e00"
+        cold.send = lambda _data: True
+        cold_responses = iter((missing, missing))
+        cold.receive = lambda: next(cold_responses)
+        self.assertTrue(cold._read_params("00640002", required_params=frozenset()))
+        self.assertIsNone(cold.filter_timer_countdown)
+
+        fan = Fan("192.0.2.1")
+        fan.unit_type = "0e00"
+        fan.filter_timer_countdown = "00000a00"
+        fan.send = lambda _data: True
+        responses = iter((missing, missing, *(missing for _ in range(10)), missing, recovered))
+        fan.receive = lambda: next(responses)
+
+        self.assertTrue(fan._read_params("00640002", required_params=frozenset()))
+        self.assertEqual(fan.filter_timer_countdown, "10d 0h 0m ")
+        self.assertEqual(fan._optional_read_backoff[0x0064], 10)
+        for remaining in range(9, -1, -1):
+            self.assertTrue(
+                fan._read_params("00640002", required_params=frozenset())
+            )
+            self.assertEqual(fan._optional_read_backoff.get(0x0064, 0), remaining)
+
+        self.assertTrue(fan._read_params("00640002", required_params=frozenset()))
+        self.assertEqual(fan.filter_timer_countdown, "9d 0h 0m ")
+        self.assertFalse(fan.last_missing_optional_params)
+
+    def test_targeted_invalid_filter_countdown_clears_stale_value(self):
+        fan = Fan("192.0.2.1")
+        fan.unit_type = "0e00"
+        fan.filter_timer_countdown = "00000a00"
+        fan.send = lambda _data: True
+        fan.receive = lambda: packet_with_payload([0xFE, 4, 0x64, 0, 0, 0x6E, 1])
+
+        self.assertFalse(fan.get_param("filter_timer_countdown"))
+        self.assertIsNone(fan.filter_timer_countdown)
 
     def test_targeted_rejection_clears_retained_controls(self):
         fan = Fan("192.0.2.1")
@@ -281,6 +375,35 @@ class PacketBuilderTest(unittest.TestCase):
         record = fan.read_weekly_schedule_record(1, 1)
         self.assertIsNotNone(record)
         self.assertEqual((record.day, record.period), (1, 1))
+
+    def test_schedule_day_reads_each_documented_period_selector(self):
+        fan = Fan("192.0.2.1")
+        sent = []
+        responses = iter(
+            [
+                packet_with_payload(
+                    [0xFE, 0x06, 0x77, 0x01, period, 0x01, 0x00, 0x00, end]
+                )
+                for period, end in ((1, 6), (2, 12), (3, 18), (4, 0))
+            ]
+        )
+        fan.send = lambda data: sent.append(data) or True
+        fan.receive = lambda: next(responses)
+
+        records = fan.read_weekly_schedule_day(1)
+
+        self.assertEqual(set(records), {1, 2, 3, 4})
+        self.assertEqual(
+            sent,
+            [
+                fan.func["read"] + fan.encode_params("0077", f"01{period:02x}")
+                for period in range(1, 5)
+            ],
+        )
+        self.assertEqual(
+            [(record.day, record.period) for record in records.values()],
+            [(1, period) for period in range(1, 5)],
+        )
 
     def test_schedule_read_learns_only_explicit_unsupported_response(self):
         fan = Fan("192.0.2.1")

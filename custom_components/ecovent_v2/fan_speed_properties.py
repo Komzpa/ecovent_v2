@@ -255,12 +255,10 @@ class FanSpeedPropertiesMixin:
             "breezy": 4,
             "freshbox": 4,
         }.get(self.profile_key)
-        # Captured TwinFresh Style 0x0E00 / 0.3 (2021-10-04) reports a
-        # four-byte minute/hour/u16-day value, unlike three-byte Vento timers.
-        if (
-            getattr(self, "_unit_type_id", None) == 0x0E00
-            and self.firmware == "0.3 2021-10-04"
-        ):
+        # TwinFresh Style 0x0E00 uses a four-byte minute/hour/u16-day value,
+        # unlike three-byte Vento timers. Extend the captured 0.3 format to
+        # this model's newer firmware; see protocol.md for the evidence limit.
+        if getattr(self, "_unit_type_id", None) == 0x0E00:
             expected_size = 4
         if (
             getattr(self, "_unit_type_id", None) is not None

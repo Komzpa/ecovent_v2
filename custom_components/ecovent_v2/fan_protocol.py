@@ -17,6 +17,7 @@ BULK_READ_REPROBE_READS = 10
 VENTO_SOFT_MISS_CONTROL_PARAMS = frozenset({0x0001, 0x0002, 0x0044})
 PRESERVE_ON_SOFT_MISS_PARAMS = frozenset(
     {
+        0x0064,  # filter_timer_countdown
         0x007C,  # device_search
         0x0086,  # firmware
         0x009C,  # wifi_assigned_ip
@@ -429,6 +430,7 @@ class FanProtocolMixin:
             i = i + 1
             self._last_response_param_ids = None
             self._last_raw_response_param_ids = None
+            self._last_invalid_response_param_ids = None
             self._last_response_param_values = None
             self._last_unsupported_param_ids = None
             if self.send(data):
@@ -457,14 +459,26 @@ class FanProtocolMixin:
                         decoded_read_ids = self._store_staged_response_params(
                             requested_read_ids, record_unknown=False
                         )
-                        # An answered but undecodable control row is not silence.
+                        # An answered but undecodable row is not silence. Keep this
+                        # transaction fact for both direct and bulk-read callers.
                         invalid_read_ids = (
                             requested_read_ids
                             & set(self._last_raw_response_param_ids or ())
                         ) - decoded_read_ids
+                        self._last_invalid_response_param_ids = frozenset(
+                            invalid_read_ids
+                        )
                         for param_id in invalid_read_ids:
-                            if self._is_vento_soft_miss_control(param_id):
-                                self._mark_param_unavailable(param_id, invalid=True)
+                            # Preserve rows need an affirmative clear because a
+                            # soft omission normally keeps their cached value.
+                            # Other rows retain their established read handling.
+                            if (
+                                param_id in PRESERVE_ON_SOFT_MISS_PARAMS
+                                or self._is_vento_soft_miss_control(param_id)
+                            ):
+                                self._mark_param_unavailable(
+                                    param_id, invalid=True
+                                )
                         read_confirmed = bool(
                             requested_read_ids
                             & (decoded_read_ids | set(unsupported_ids))
@@ -611,7 +625,7 @@ class FanProtocolMixin:
 
     def _mark_param_unavailable(self, param_id, *, unsupported=False, invalid=False):
         """Retain soft-missing controls/identity, but clear explicitly rejected data."""
-        if param_id in PRESERVE_ON_SOFT_MISS_PARAMS:
+        if param_id in PRESERVE_ON_SOFT_MISS_PARAMS and not (unsupported or invalid):
             return
         if not (unsupported or invalid) and self._is_vento_soft_miss_control(param_id):
             definition = self.params[param_id]
@@ -738,17 +752,21 @@ class FanProtocolMixin:
             )
             try_bulk_read = self._bulk_read_reprobe_countdown == 0
 
-        def mark_unavailable(param_id, *, unsupported=False):
+        def mark_unavailable(param_id, *, unsupported=False, invalid=False):
             nonlocal complete
             if param_id in required_param_ids:
                 if unsupported or self._is_vento_soft_miss_control(param_id):
-                    self._mark_param_unavailable(param_id, unsupported=unsupported)
+                    self._mark_param_unavailable(
+                        param_id, unsupported=unsupported, invalid=invalid
+                    )
                 complete = False
                 missing_required_params.add(param_id)
                 return
 
             missing_optional_params.add(param_id)
-            self._mark_param_unavailable(param_id, unsupported=unsupported)
+            self._mark_param_unavailable(
+                param_id, unsupported=unsupported, invalid=invalid
+            )
             if unsupported or not self._is_vento_soft_miss_control(param_id):
                 self._delay_optional_param_retry(param_id)
 
@@ -760,6 +778,7 @@ class FanProtocolMixin:
             if try_bulk_read:
                 self._last_response_param_ids = None
                 self._last_unsupported_param_ids = None
+                self._last_invalid_response_param_ids = None
                 if self.send_command(self.func["read"], chunk, retries=3):
                     received_response = True
                     self._bulk_read_supported = True
@@ -771,6 +790,9 @@ class FanProtocolMixin:
                         continue
                     response_ids = set(response_ids or ()) & chunk_param_ids
                     unsupported_ids = set(unsupported_ids or ()) & chunk_param_ids
+                    invalid_ids = set(
+                        self._last_invalid_response_param_ids or ()
+                    ) & chunk_param_ids
                     received_params.update(response_ids)
                     for param_id in response_ids:
                         self._mark_param_available_for_retry(param_id)
@@ -779,10 +801,13 @@ class FanProtocolMixin:
                         if param_id not in required_param_ids:
                             self._unsupported_optional_poll_param_ids().add(param_id)
                         mark_unavailable(param_id, unsupported=True)
+                    for param_id in invalid_ids:
+                        mark_unavailable(param_id, invalid=True)
                     missing = [
                         param
                         for param in missing
-                        if int(param, 16) not in response_ids | unsupported_ids
+                        if int(param, 16)
+                        not in response_ids | unsupported_ids | invalid_ids
                     ]
                     if missing:
                         bulk_gap_params.update(int(param, 16) for param in missing)
@@ -821,12 +846,16 @@ class FanProtocolMixin:
 
                 self._last_response_param_ids = None
                 self._last_unsupported_param_ids = None
+                self._last_invalid_response_param_ids = None
                 individual_retry_params.add(param_id)
                 param_complete = self.send_command(
                     self.func["read"], param, retries=1
                 )
                 response_ids = self._last_response_param_ids
                 unsupported_ids = set(self._last_unsupported_param_ids or ())
+                invalid_response = param_id in set(
+                    self._last_invalid_response_param_ids or ()
+                )
                 received_response = param_complete or received_response
                 if param_complete and param_id in unsupported_ids:
                     unsupported_params.add(param_id)
@@ -844,7 +873,7 @@ class FanProtocolMixin:
                     no_response_params.add(param_id)
                     # Vento can transiently omit its control rows. Keep their
                     # values and retry next poll; other probes retain backoff.
-                    mark_unavailable(param_id)
+                    mark_unavailable(param_id, invalid=invalid_response)
                     if param_id not in required_param_ids:
                         _LOGGER.debug(
                             "EcoVent optional parameter 0x%04X did not respond "
