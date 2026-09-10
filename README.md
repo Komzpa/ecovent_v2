@@ -62,7 +62,8 @@ External relabels and OEM names tracked as evidence or candidates:
   SIKU RV 25 W Pro WiFi V2
 * Flexit Roomie One WiFi V2, Romventilator Roomie One WiFi V2,
   Roomie One Wifi V2, Flexit Roomie Dual Wifi, Roomie Dual Wifi,
-  Roomie Dual WiFi V2, Flexit Aura One WiFi, Flexit Aura, Flexit Muto
+  Roomie Dual WiFi V2, Flexit Aura One WiFi, Flexit Aura, Flexit Muto,
+  Flexit Bodo Supreme
 * DUKA One, DUKA One S6W, DUKA One S6BW, DUKA One S4 Wi-Fi,
   DUKA One S6 Wi-Fi, DUKA One Pro 25 S Wi-Fi, DUKA One Pro 50 S Wi-Fi
 * RL Raumklima, RL PRO-Serie, RL 50RVW, RL 30DVW, RL 25RVW

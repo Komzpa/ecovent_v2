@@ -88,6 +88,12 @@ ARC_SMART_MANUAL_URL = (
 FLEXIT_ROOMIE_ONE_URL = (
     "https://www.flexit.no/produkter/base/34230/roomie-one-wifi-v2/"
 )
+FLEXIT_BODO_SUPREME_URL = (
+    "https://www.flexit.com/en/products/120946/bathroom-fan-bodo-supreme-black-app-control/"
+)
+FLEXIT_BODO_SUPREME_WHITE_URL = (
+    "https://www.flexit.no/produkter/120945/baderomsvifte-bodo-supreme-hvit-appstyring-o100-125mm/"
+)
 FLEXIT_ROOMIE_CATEGORY_URL = (
     "https://www.flexit.no/kategorier/2129/romventilator-for-enkeltrom/"
 )

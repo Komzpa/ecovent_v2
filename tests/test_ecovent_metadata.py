@@ -212,6 +212,17 @@ class ParseResponseTest(unittest.TestCase):
         self.assertEqual(Fan.device_models[0x0D00].parser_key, 0x0D00)
         self.assertEqual(Fan.device_models[0x0D00].profile_key, "arc")
 
+    def test_arc_unit_type_records_the_bodo_supreme_relabel(self):
+        arc = Fan.device_models[0x0D00]
+        relabels = {marketing.model: marketing for marketing in arc.relabels}
+        candidates = {marketing.model for marketing in arc.candidates}
+
+        self.assertIn("Flexit Bodo Supreme", relabels)
+        self.assertNotIn("Flexit Bodo Supreme", candidates)
+        self.assertEqual(relabels["Flexit Bodo Supreme"].evidence, "community_tested")
+        self.assertEqual(relabels["Flexit Bodo Supreme"].brand, "Flexit")
+        self.assertTrue(relabels["Flexit Bodo Supreme"].source_documents)
+
     def test_unit_type_metadata_keeps_relabels_and_candidates_separate(self):
         expert = Fan.device_models[0x0300]
         relabels = {marketing.model: marketing.evidence for marketing in expert.relabels}

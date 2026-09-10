@@ -52,6 +52,7 @@ reports and earlier compatibility fixes show these differences:
 | Issue #95 | `0x0500` | Blauberg VENTO Expert A30 / VENTS TwinFresh Expert RW-30 | `0.5 2021-10-04` | Explicitly rejects the same optional analog-voltage, preset-speed, fan2-speed, and filter-timer rows as the older Issue #90 firmware. |
 | Issue #86 | `0x0300` | Flexit Roomie One WiFi V2, reported as `Romventilator Roomie One WiFi V2` | `0.7 2021-10-04` | Reporter confirms the Flexit/Romventilator marketing variant on the shared Vento profile; it rejects the known optional rows `0x003A`..`0x003F` and `0x0063`. |
 | Issue #92 | `0x0600` | Blauberg Smart Wi-Fi / VENTS iFan Wi-Fi | `2.2 2022-06-16` | Three extract-fan devices explicitly reject motion rows `0x000B` and `0x0012` but remain controllable from Home Assistant when state `0x0001` and fan speed `0x0004` are used as the automatic-poll liveness rows. |
+| This PR | `0x0D00` | Flexit Bodo Supreme, a Flexit-branded bathroom extract fan sold on the Norwegian market | `0.2 2024-06-24` | Self-reports unit type `0x0D00` and runs the `arc` profile with no rejected rows, so the profile match comes from the device rather than from the marketing name. |
 
 | Area | PDF / implementation expectation | Observed device behavior | Integration policy |
 | -- | -- | -- | -- |
@@ -150,6 +151,11 @@ unit-type values.
 
 Issue #86 confirms `Flexit Roomie One WiFi V2` on unit type `0x0300`; the
 reported `Romventilator Roomie One WiFi V2` spelling is indexed alongside it.
+`Flexit Bodo Supreme` is confirmed on unit type `0x0D00` from a live device
+(firmware `0.2 2024-06-24`) that self-reports the unit type and runs the `arc`
+profile with no rejected rows. Flexit sells it in a black and a white variant; the
+tested unit is the black one. It is a bathroom extract fan rather than a room
+ventilator, so it sits outside the Roomie line.
 Flexit's catalogue also lists Roomie Dual WiFi V2, Roomie Dual,
 Aura One WiFi, and Muto, while its older catalogue includes Roomie One Wifi,
 Roomie Dual Wifi, Eq2, O2, and BR100. These names are indexed for discovery,
