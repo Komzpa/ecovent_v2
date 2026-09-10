@@ -1239,6 +1239,27 @@ class Issue35RegressionTest(unittest.TestCase):
             "SensorDeviceClass.ENUM",
         )
 
+    def test_arc_light_level_sensor_is_illuminance_in_lux(self):
+        """The Arc light-sensor row is illuminance, so it is declared in lux."""
+        tree = _tree(SENSOR_SPECS_PATH)
+        matching_specs = []
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if not isinstance(node.func, ast.Name) or node.func.id != "SensorSpec":
+                continue
+            if not node.args or not isinstance(node.args[0], ast.Constant):
+                continue
+            if node.args[0].value != "_light_level":
+                continue
+            matching_specs.append(node)
+
+        self.assertEqual(len(matching_specs), 1)
+        positional = [ast.unparse(arg) for arg in matching_specs[0].args]
+        self.assertIn("LIGHT_LUX", positional)
+        self.assertIn("SensorDeviceClass.ILLUMINANCE", positional)
+        self.assertIn("SensorStateClass.MEASUREMENT", positional)
+
     def test_preset_translations_group_boost_modes(self):
         translation_paths = [STRINGS_PATH, *TRANSLATIONS_PATH.glob("*.json")]
 

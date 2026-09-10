@@ -256,6 +256,7 @@ class Fan(
     _temperature = None
     _room_temperature = None
     _air_quality = None
+    _light_level = None
     _air_quality_treshold = None
     _co2_sensor_state = None
     _co2_treshold = None

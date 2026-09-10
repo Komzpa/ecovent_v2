@@ -632,10 +632,47 @@ Implemented Arc Smart / O2 Supreme parameters:
 | 0x031E | `all_day_airflow` | R/W/RW | Airflow in 24 hour mode | select |
 | 0x031F | `air_quality_treshold` | R/W/RW/INC/DEC | Air quality threshold setting | number |
 | 0x0320 | `air_quality` | R | Current air quality level | sensor |
+| 0x0321 | `light_level` | R | Illuminance from the built-in light sensor, in lux | sensor |
 | 0x0323 | `temperature_status` | R | Temperature sensor status | diagnostic binary sensor |
 | 0x0324 | `temperature_sensor_state` | R/W/RW | Temperature sensor-based control | switch |
 | 0x0325 | `temperature_treshold` | R/W/RW/INC/DEC | Temperature threshold setting, 18–36 °C | number |
 | 0x032F | `temperature_airflow` | R/W/RW | Airflow when the temperature sensor is triggered | select |
+
+`0x0321` is not described in the vendor PDFs. Both guides number parameters in
+decimal and hex and step straight from `800/0x0320` to `803/0x0323`, so `0x0321`
+and `0x0322` are omitted from the published table; this device answers `0x0321`
+but not `0x0322`. It was identified on a Flexit Bodo Supreme (unit type `0x0D00`,
+firmware `0.2 2024-06-24`) by correlating the register against an independently
+controlled ceiling light in the same room. Both transitions landed within one
+5-second polling interval of the switch, and the value is independent of
+fan speed: it held at 64–66 while the fan ramped from 2340 rpm back down to 540 rpm
+at the end of a boost.
+
+The register is exposed with `SensorDeviceClass.ILLUMINANCE` in lux. That was not
+obvious from the guides, which express no register in lux at all: the units across
+both parameter tables are m3/h, °C, %RH, mV, seconds and "index", and the immediate
+neighbour `0x0320` (`air_quality`, same 2-byte size) is documented as `0 - 500 index`.
+The unit was settled by measurement rather than by that analogy. Two covering passes
+and two phone-torch passes, logged at 1 Hz straight from the register:
+
+| Condition | `0x0321` |
+| --- | --- |
+| Sensor covered by hand | 1 |
+| Unlit room, door closed | 10–11 |
+| Ceiling light on | 57–69 |
+| Phone torch held close | 1126 and 1593 on two passes |
+
+This rules out a bounded index: the value passes 500 freely, reaches a true zero
+when the sensor is occluded, and the two torch passes peak at different values rather
+than at a shared plateau, so nothing is saturating. The span is over three decades,
+which is illuminance behavior.
+
+A Zigbee illuminance sensor elsewhere in the same room read 21–22 lux unlit and
+73–75 lux with the ceiling light on, against 10–11 and 57–69 here. Agreement within
+roughly a factor of two across both levels is what two calibrated lux sensors in
+different orientations should show, so the values are reported as lux. The absolute
+calibration has not been checked against a reference meter at the sensor itself, so
+a constant scale factor cannot be excluded.
 
 The Arc/O2 PDFs also document Wi-Fi setup mode, SSID/password/encryption, DHCP,
 DNS, gateway, factory reset, and setup apply/discard rows. Those remain intentionally

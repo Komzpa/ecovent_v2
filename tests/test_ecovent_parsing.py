@@ -1002,6 +1002,33 @@ class ParseRobustnessTest(unittest.TestCase):
                     )
                     self.assertEqual(fan._last_response_param_ids, set())
 
+    def test_arc_light_level_is_decoded_from_page_three(self):
+        fan = Fan("192.0.2.1")
+        fan.unit_type = "0D00"
+        self.assertEqual(fan.profile_key, "arc")
+
+        # Lit room, as observed on a Flexit Bodo Supreme with the ceiling light on.
+        self.assertTrue(
+            fan.parse_response(
+                packet_with_payload([0xFF, 0x03, 0xFE, 0x02, 0x21, 0x41, 0x00])
+            )
+        )
+        self.assertEqual(fan.light_level, 65)
+
+        # Dark room, same unit with the light switched off.
+        self.assertTrue(
+            fan.parse_response(
+                packet_with_payload([0xFF, 0x03, 0xFE, 0x02, 0x21, 0x0A, 0x00])
+            )
+        )
+        self.assertEqual(fan.light_level, 10)
+        self.assertEqual(fan.unknown_params, {})
+
+    def test_arc_quick_update_polls_light_level(self):
+        fan = Fan("192.0.2.1")
+        fan.unit_type = "0D00"
+        self.assertIn("0321", fan.device_profile.quick_update_request)
+
     def test_arc_silent_times_reject_invalid_clock_fields(self):
         for parameter, attribute in (
             (0x0318, "silent_mode_start_time"),
