@@ -630,3 +630,7 @@ Version 1.2.30
 * Recognize the optional registers rejected by Breezy/Freshpoint unit type
   `0x1100`, firmware `0.8 2024-03-15`. Rejected rows stay hidden without
   opening a Repair; unknown firmware and extra rejected rows remain reportable.
+* Accept BGCP `0x0077` final schedule rows ending at `23:59` instead of
+  rejecting them and leaving each day incomplete. Preserve either `00:00` or
+  `23:59` and the device-reserved byte through reads and period-speed updates.
+  Invalid terminal times remain rejected before any schedule record is written.
