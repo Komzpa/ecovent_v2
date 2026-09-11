@@ -31,6 +31,10 @@ writes, or hardware/profile mismatch Repairs.
 - Treat manufacturer PDFs as parameter-map evidence, not as complete firmware
   contracts. Real devices in the Vento/TwinFresh, Breezy/Freshpoint, and
   Freshbox/Micra families can omit or reject documented rows.
+- Keep read-only measurement validation separate from writable control limits.
+  A firmware report may prove a documented measurement range is too narrow,
+  but does not widen a control setpoint or establish a new physical sensor
+  limit. Preserve the wire value width and reject malformed responses.
 - Before calling a PDF wrong, first check whether the issue is a variant split:
   standard vs Pro sensor packages, firmware `0.4` behavior, A21 Modbus vs BGCP,
   Vento-family rows shared across brands, or a row documented for one profile
