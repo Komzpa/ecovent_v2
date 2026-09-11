@@ -561,14 +561,6 @@ Version 1.2.24
   and add the reporter-confirmed Flexit/Romventilator Roomie One V2 relabel plus
   related Flexit search-index candidates.
 
-Version 1.2.30
-* Accept Freshpoint/Breezy two-byte CO2 measurements above the PDF's 2000 ppm
-  reading range without widening the 400-2000 ppm writable CO2 threshold.
-* Treat Freshpoint 160-E unit type `0x1100` firmware `0.8 2024-03-15` as the
-  known standard optional-row variant already seen on newer firmware: its
-  rejected CO2/VOC/display rows stay hidden without opening a Repair, while
-  unknown firmware and extra rejected rows remain reportable.
-
 Version 1.2.28
 * Preserve the last known Vento control state across silent poll omissions and
   retry the omitted control on the next poll without treating retained data as
@@ -631,3 +623,10 @@ Version 1.2.25
   explicit manual clock synchronization remains available and may be audible.
 * Reject malformed Breezy/Freshbox alarm lists with an unpaired trailing byte
   instead of silently dropping the tail.
+
+Version 1.2.30
+* Accept Freshpoint/Breezy two-byte CO2 measurements above the PDF's 2000 ppm
+  reading range without widening the 400-2000 ppm writable CO2 threshold.
+* Recognize the optional registers rejected by Breezy/Freshpoint unit type
+  `0x1100`, firmware `0.8 2024-03-15`. Rejected rows stay hidden without
+  opening a Repair; unknown firmware and extra rejected rows remain reportable.
