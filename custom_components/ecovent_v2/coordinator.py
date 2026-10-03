@@ -38,6 +38,8 @@ from .const import CONF_AUTO_CLOCK_SYNC, CONF_SILENT_MODE, DOMAIN
 from .protocol_diagnostics import (
     hardware_profile_mismatch_state,
     hardware_profile_mismatch_issue_url,
+    rejected_device_value_details,
+    rejected_device_value_issue_url,
     unsupported_optional_poll_parameter_summary,
 )
 
@@ -61,6 +63,23 @@ def async_delete_hardware_profile_mismatch_issue(
         return
 
     ir.async_delete_issue(hass, DOMAIN, hardware_profile_mismatch_issue_id(entry_id))
+
+
+def rejected_device_value_issue_id(entry_id: str) -> str:
+    """Return the per-entry Repairs issue id for rejected device values."""
+    return f"rejected_device_values_{entry_id}"
+
+
+def async_delete_rejected_device_value_issue(
+    hass: HomeAssistant, entry_id: str
+) -> None:
+    """Delete the rejected-device-value Repair for one entry."""
+    try:
+        from homeassistant.helpers import issue_registry as ir
+    except ImportError:
+        return
+
+    ir.async_delete_issue(hass, DOMAIN, rejected_device_value_issue_id(entry_id))
 
 
 class EcoVentCoordinator(DataUpdateCoordinator):
@@ -141,6 +160,7 @@ class EcoVentCoordinator(DataUpdateCoordinator):
             )
 
         self._update_hardware_profile_mismatch_repair_issue()
+        self._update_rejected_device_value_repair_issue()
 
         if self._should_refresh_schedule_week():
             await self.hass.async_add_executor_job(self._load_schedule_week)
@@ -151,6 +171,7 @@ class EcoVentCoordinator(DataUpdateCoordinator):
     async def _async_post_init_setup(self) -> None:
         """Load slow one-off state after device discovery."""
         self._update_hardware_profile_mismatch_repair_issue()
+        self._update_rejected_device_value_repair_issue()
         if self._should_refresh_schedule_week():
             await self.hass.async_add_executor_job(self._load_schedule_week)
 
@@ -221,6 +242,72 @@ class EcoVentCoordinator(DataUpdateCoordinator):
 
         self._reported_hardware_profile_mismatch_state = mismatch_state
 
+
+    def _update_rejected_device_value_repair_issue(self) -> None:
+        """Keep rejected-value reports until dismissal or an integration upgrade."""
+        try:
+            from homeassistant.helpers import issue_registry as ir
+        except ImportError:
+            _LOGGER.debug("Repairs issue registry unavailable for rejected values")
+            return
+
+        issue_id = rejected_device_value_issue_id(self.config_entry.entry_id)
+        registry = ir.async_get(self.hass)
+        previous = registry.issues.get((DOMAIN, issue_id))
+        current_version = _report_version()
+        old_data = dict(previous.data or {}) if previous is not None else {}
+        if previous is not None and old_data.get("integration_version") != current_version:
+            async_delete_rejected_device_value_issue(self.hass, self.config_entry.entry_id)
+            previous = None
+            old_data = {}
+
+        # Only an integration upgrade resets reports: later valid values and
+        # same-version reloads cannot prove a previously rejected value harmless.
+        current = rejected_device_value_details(self._fan)
+        if not current and previous is None:
+            return
+        records = list(old_data.get("rejected_values", ()))
+        keys = {
+            (item.get("id"), item.get("raw_hex"), item.get("integration_version"))
+            for item in records
+        }
+        for item in current:
+            item = {**item, "integration_version": current_version}
+            key = (item["id"], item["raw_hex"], current_version)
+            if key not in keys:
+                records.append(item)
+                keys.add(key)
+        if not records:
+            return
+        total_count = max(int(old_data.get("rejected_value_count", 0)), len(records))
+        records = records[-40:]
+        issue_url = rejected_device_value_issue_url(self._fan, records)
+        try:
+            ir.async_create_issue(
+                self.hass,
+                DOMAIN,
+                issue_id,
+                is_fixable=False,
+                is_persistent=True,
+                learn_more_url=issue_url,
+                severity=ir.IssueSeverity.WARNING,
+                translation_key="rejected_device_values",
+                translation_placeholders={"name": self._fan.name, "count": str(total_count)},
+                data={
+                    "entry_id": self.config_entry.entry_id,
+                    "integration_version": current_version,
+                    "rejected_values": records,
+                    "rejected_value_count": total_count,
+                    "github_issue_url": issue_url,
+                },
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.warning(
+                "Unable to update EcoVent rejected-value Repair for %s: %s",
+                self._fan.name,
+                err,
+                exc_info=True,
+            )
     def _defer_startup_clock_sync(self) -> None:
         """Avoid clock-only writes during Home Assistant startup discovery."""
         if not self._auto_clock_sync or not self._supports_device_clock_sync():

@@ -119,7 +119,11 @@ class FanMiscPropertiesMixin:
 
     @property
     def unknown_params(self):
-        return self._unknown_params
+        """Return legacy raw-hex values for parameters not currently decoded."""
+        return {
+            param_id: value.get("raw_hex") if isinstance(value, dict) else value
+            for param_id, value in self._unknown_params.items()
+        }
 
     def reset_filter_timer(self):
         return self.set_param("filter_timer_reset", "01")

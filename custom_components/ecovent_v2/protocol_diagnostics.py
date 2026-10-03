@@ -235,3 +235,64 @@ def hardware_profile_mismatch_issue_url(
             {"title": title, "body": hardware_profile_mismatch_issue_body(fan, param_ids)}
         )
     )
+
+
+def rejected_device_value_details(fan, *args, **kwargs) -> tuple[dict, ...]:
+    """Return bounded aggregate rejection reports keyed by (param, reason class)."""
+    reports = getattr(fan, "_rejected_value_reports", {}) or {}
+    out = []
+    for key in sorted(reports, key=lambda k: (k[0], k[1])):
+        item = dict(reports[key])
+        item["key"] = f"{item['id']}/{item['reason_class']}"
+        out.append(item)
+    return tuple(out)
+
+
+def rejected_device_value_issue_body(fan, details=None) -> str:
+    """Build a bounded, public-safe issue body for rejected device values."""
+    if details is None:
+        details = rejected_device_value_details(fan)
+    details = tuple(details)
+    shown = details[:8]
+    rows = "\n".join(
+        f"- `{item['id']}` `{item['name']}` raw `{item['raw_hex']}` — "
+        f"{item['reason'][:160]}"
+        for item in shown
+    ) or "- none detected"
+    omitted = len(details) - len(shown)
+    if omitted:
+        rows += f"\n- {omitted} additional rejected parameter(s) omitted"
+    unit_type_id = getattr(fan, "_unit_type_id", None)
+    unit_type = getattr(fan, "unit_type", None) or "unknown"
+    model = getattr(fan, "name", None) or getattr(fan, "profile_key", "unknown")
+    return "\n".join(
+        (
+            "### Rejected device values",
+            "",
+            "EcoVent V2 received values for known parameters that its decoder "
+            "rejected. No data is sent automatically; submitting this report "
+            "requires your action.",
+            "",
+            "### Device context",
+            "",
+            f"- Model/name: `{model}`",
+            f"- Integration profile: `{getattr(fan, 'profile_key', 'unknown')}`",
+            f"- Unit type: `{unit_type}`",
+            f"- Unit type id: `{f'0x{unit_type_id:04X}' if unit_type_id is not None else 'unknown'}`",
+            f"- Firmware: `{getattr(fan, 'firmware', None) or 'unknown'}`",
+            f"- EcoVent V2 integration version: `{_report_version()}`",
+            "",
+            "### Rejected parameters (up to 8 shown)",
+            "",
+            rows,
+        )
+    )
+
+
+def rejected_device_value_issue_url(fan, details=None) -> str:
+    """Return a bounded GitHub issue URL containing decoder rejection details."""
+    unit_type = getattr(fan, "unit_type", None) or getattr(fan, "profile_key", "unknown")
+    title = f"Rejected device values for {unit_type}"
+    return f"{GITHUB_NEW_ISSUE_URL}?" + urlencode(
+        {"title": title, "body": rejected_device_value_issue_body(fan, details)}
+    )
