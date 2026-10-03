@@ -326,6 +326,12 @@ class FanProtocolParseMixin:
         """Aggregate oscillating bad values under one (param, reason-class) key."""
         reason_class = self._rejection_reason_class(reason)
         key = (param_id, reason_class)
+        poll_seen = getattr(self, "_rejected_value_poll_seen", None)
+        if poll_seen is not None:
+            poll_key = (key, raw_hex)
+            if poll_key in poll_seen:
+                return
+            poll_seen.add(poll_key)
         try:
             raw_int = int(raw_hex, 16) if raw_hex else 0
         except ValueError:

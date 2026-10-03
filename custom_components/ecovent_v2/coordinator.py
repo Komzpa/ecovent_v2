@@ -36,6 +36,7 @@ except ImportError:
 
 from .const import CONF_AUTO_CLOCK_SYNC, CONF_SILENT_MODE, DOMAIN
 from .protocol_diagnostics import (
+    _report_version,
     hardware_profile_mismatch_state,
     hardware_profile_mismatch_issue_url,
     rejected_device_value_details,
@@ -244,7 +245,7 @@ class EcoVentCoordinator(DataUpdateCoordinator):
 
 
     def _update_rejected_device_value_repair_issue(self) -> None:
-        """Keep rejected-value reports until dismissal or an integration upgrade."""
+        """Persist new rejected-value findings and keep them through reloads."""
         try:
             from homeassistant.helpers import issue_registry as ir
         except ImportError:
@@ -254,34 +255,53 @@ class EcoVentCoordinator(DataUpdateCoordinator):
         issue_id = rejected_device_value_issue_id(self.config_entry.entry_id)
         registry = ir.async_get(self.hass)
         previous = registry.issues.get((DOMAIN, issue_id))
-        current_version = _report_version()
+        version = _report_version()
         old_data = dict(previous.data or {}) if previous is not None else {}
-        if previous is not None and old_data.get("integration_version") != current_version:
+        if previous is not None and old_data.get("integration_version") != version:
             async_delete_rejected_device_value_issue(self.hass, self.config_entry.entry_id)
             previous = None
             old_data = {}
+            self._fan._rejected_value_reports.clear()
+            self._fan._open_rejection_episodes.clear()
+            self._fan._last_valid_param_values.clear()
+            self._fan._logged_rejection_keys.clear()
 
-        # Only an integration upgrade resets reports: later valid values and
-        # same-version reloads cannot prove a previously rejected value harmless.
+        reports = self._fan._rejected_value_reports
+        stored = list(old_data.get("rejected_values", ()))
+        for item in stored:
+            try:
+                key = (int(item["id"], 16), item["reason_class"])
+            except (KeyError, TypeError, ValueError):
+                continue
+            reports.setdefault(key, item)
+
         current = rejected_device_value_details(self._fan)
-        if not current and previous is None:
+        if not current:
             return
-        records = list(old_data.get("rejected_values", ()))
-        keys = {
-            (item.get("id"), item.get("raw_hex"), item.get("integration_version"))
-            for item in records
-        }
-        for item in current:
-            item = {**item, "integration_version": current_version}
-            key = (item["id"], item["raw_hex"], current_version)
-            if key not in keys:
-                records.append(item)
-                keys.add(key)
-        if not records:
+
+        previous_state = getattr(self, "_rejected_value_persisted_state", None)
+        if previous_state is None:
+            previous_state = {
+                (item.get("id"), item.get("reason_class")): item
+                for item in stored
+            }
+        new_key = any(
+            (item["id"], item["reason_class"]) not in previous_state
+            for item in current
+        )
+        closed_episode = any(
+            len(item.get("episodes", ()))
+            > len(
+                previous_state.get((item["id"], item["reason_class"]), {}).get(
+                    "episodes", ()
+                )
+            )
+            for item in current
+        )
+        if not new_key and not closed_episode:
             return
-        total_count = max(int(old_data.get("rejected_value_count", 0)), len(records))
-        records = records[-40:]
-        issue_url = rejected_device_value_issue_url(self._fan, records)
+
+        issue_url = rejected_device_value_issue_url(self._fan, current)
         try:
             ir.async_create_issue(
                 self.hass,
@@ -292,12 +312,14 @@ class EcoVentCoordinator(DataUpdateCoordinator):
                 learn_more_url=issue_url,
                 severity=ir.IssueSeverity.WARNING,
                 translation_key="rejected_device_values",
-                translation_placeholders={"name": self._fan.name, "count": str(total_count)},
+                translation_placeholders={
+                    "name": self._fan.name,
+                    "count": str(sum(item["count"] for item in current)),
+                },
                 data={
                     "entry_id": self.config_entry.entry_id,
-                    "integration_version": current_version,
-                    "rejected_values": records,
-                    "rejected_value_count": total_count,
+                    "integration_version": version,
+                    "rejected_values": list(current),
                     "github_issue_url": issue_url,
                 },
             )
@@ -308,6 +330,10 @@ class EcoVentCoordinator(DataUpdateCoordinator):
                 err,
                 exc_info=True,
             )
+            return
+        self._rejected_value_persisted_state = {
+            (item["id"], item["reason_class"]): item for item in current
+        }
     def _defer_startup_clock_sync(self) -> None:
         """Avoid clock-only writes during Home Assistant startup discovery."""
         if not self._auto_clock_sync or not self._supports_device_clock_sync():

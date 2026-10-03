@@ -60,6 +60,6 @@ async def async_get_config_entry_diagnostics(
         )
     if rejected_values:
         diagnostics["rejected_device_value_issue_url"] = (
-            rejected_device_value_issue_url(fan, rejected_device_value_details(fan, confirmed_only=True))
+            rejected_device_value_issue_url(fan, rejected_values)
         )
     return diagnostics
